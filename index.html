@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Aztec Garden Meander Header</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0a;
+            color: #fff;
+        }
+
+        #header-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh; /* Dynamic viewport height for mobile browsers */
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        .header-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .header-content h1 {
+            font-size: clamp(2rem, 5vw, 4rem);
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: #d4af37;
+            text-shadow: 0 0 30px rgba(212, 175, 55, 0.5);
+            margin-bottom: 1rem;
+        }
+
+        .header-content p {
+            font-size: clamp(0.9rem, 2vw, 1.2rem);
+            letter-spacing: 0.2em;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+        }
+
+    </style>
+</head>
+<body>
+    <header id="header-container">
+        <div id="canvas-container"></div>
+        <div class="header-content">
+            <h1>Azteca</h1>
+            <p>Ancient Paths • Modern Vision</p>
+        </div>
+    </header>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ============================================
+        // AZTEC GARDEN MEANDER - Interactive Header
+        // ============================================
+
+        class AztecGardenHeader {
+            constructor(container) {
+                this.container = container;
+                this.width = container.clientWidth;
+                this.height = container.clientHeight;
+                this.mouse = { x: 0, y: 0, worldX: 0, worldY: 0 };
+                this.particles = [];
+                this.mazeWalls = [];
+                this.marbleBalls = [];
+                this.wallSegments = [];
+                
+                this.init();
+                this.createMaze();
+                this.createParticles();
+                this.createLighting();
+                // Create marble balls AFTER maze is created so wallSegments exists
+                this.createMarbleBalls();
+                this.addEventListeners();
+                this.animate();
+            }
+
+            init() {
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x050505);
+                this.scene.fog = new THREE.Fog(0x050505, 30, 120);
+
+                // Use window dimensions for fullscreen
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+
+                // Camera - Bird's eye view (adjusted for all devices)
+                const aspect = this.width / this.height;
+                // Use wider FOV for portrait/mobile screens
+                const fov = aspect < 1 ? 75 : 60;
+                this.camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
+                // Adjust height based on aspect ratio - closer for portrait
+                const cameraHeight = aspect < 1 ? 40 : 55;
+                this.camera.position.set(0, cameraHeight, 0);
+                this.camera.lookAt(0, 0, 0);
+
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ 
+                    antialias: true,
+                    alpha: true 
+                });
+                this.renderer.setSize(this.width, this.height);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                this.container.appendChild(this.renderer.domElement);
+
+                // Ground plane (larger for expanded maze)
+                const groundGeometry = new THREE.PlaneGeometry(200, 200);
+                const groundMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x0a0a0a,
+                    roughness: 0.9,
+                    metalness: 0.1
+                });
+                this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                this.ground.rotation.x = -Math.PI / 2;
+                this.ground.receiveShadow = true;
+                this.scene.add(this.ground);
+            }
+
+            createMaze() {
+                // Create noise texture for maze walls
+                const noiseCanvas = document.createElement('canvas');
+                noiseCanvas.width = 256;
+                noiseCanvas.height = 256;
+                const ctx = noiseCanvas.getContext('2d');
+                
+                // Generate procedural noise texture
+                const imageData = ctx.createImageData(256, 256);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const noise = Math.random() * 40 + 20;
+                    imageData.data[i] = noise;
+                    imageData.data[i + 1] = noise;
+                    imageData.data[i + 2] = noise;
+                    imageData.data[i + 3] = 255;
+                }
+                ctx.putImageData(imageData, 0, 0);
+                
+                const noiseTexture = new THREE.CanvasTexture(noiseCanvas);
+                noiseTexture.wrapS = THREE.RepeatWrapping;
+                noiseTexture.wrapT = THREE.RepeatWrapping;
+                noiseTexture.repeat.set(2, 2);
+
+                // Create bump map for depth
+                const bumpCanvas = document.createElement('canvas');
+                bumpCanvas.width = 128;
+                bumpCanvas.height = 128;
+                const bumpCtx = bumpCanvas.getContext('2d');
+                const bumpData = bumpCtx.createImageData(128, 128);
+                for (let i = 0; i < bumpData.data.length; i += 4) {
+                    const val = Math.random() * 60 + 30;
+                    bumpData.data[i] = val;
+                    bumpData.data[i + 1] = val;
+                    bumpData.data[i + 2] = val;
+                    bumpData.data[i + 3] = 255;
+                }
+                bumpCtx.putImageData(bumpData, 0, 0);
+                
+                const bumpTexture = new THREE.CanvasTexture(bumpCanvas);
+                bumpTexture.wrapS = THREE.RepeatWrapping;
+                bumpTexture.wrapT = THREE.RepeatWrapping;
+                bumpTexture.repeat.set(4, 4);
+
+                // Aztec meander pattern - geometric stepped design
+                const wallMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x1a1a1a,
+                    map: noiseTexture,
+                    bumpMap: bumpTexture,
+                    bumpScale: 0.05,
+                    roughness: 0.85,
+                    metalness: 0.2,
+                    emissive: 0x0a0a0a,
+                    emissiveIntensity: 0.1
+                });
+
+                // Much thicker wall dimensions for hedge-like appearance
+                const wallHeight = 1.6;
+                const wallThickness = 1.2;  // Very thick walls
+                
+                // Define Aztec meander pattern paths
+                const patterns = this.generateAztecPattern();
+                
+                // Store wall segments for collision detection
+                this.wallSegments = patterns.map(seg => ({
+                    x1: seg.start.x,
+                    z1: seg.start.z,
+                    x2: seg.end.x,
+                    z2: seg.end.z
+                }));
+                
+                patterns.forEach(segment => {
+                    const length = Math.sqrt(
+                        Math.pow(segment.end.x - segment.start.x, 2) + 
+                        Math.pow(segment.end.z - segment.start.z, 2)
+                    );
+                    
+                    // Extend walls slightly to overlap at corners
+                    const extension = wallThickness / 2;
+                    const dx = segment.end.x - segment.start.x;
+                    const dz = segment.end.z - segment.start.z;
+                    const len = Math.sqrt(dx * dx + dz * dz);
+                    const dirX = dx / len;
+                    const dirZ = dz / len;
+                    
+                    // Extended length to cover corner gaps
+                    const extendedLength = length + wallThickness;
+                    
+                    const wallGeometry = new THREE.BoxGeometry(extendedLength, wallHeight, wallThickness);
+                    const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                    
+                    // Position at midpoint
+                    wall.position.x = (segment.start.x + segment.end.x) / 2;
+                    wall.position.y = wallHeight / 2;
+                    wall.position.z = (segment.start.z + segment.end.z) / 2;
+                    
+                    // Rotate to align with segment
+                    const angle = Math.atan2(
+                        segment.end.z - segment.start.z,
+                        segment.end.x - segment.start.x
+                    );
+                    wall.rotation.y = -angle;
+                    
+                    wall.castShadow = true;
+                    wall.receiveShadow = true;
+                    
+                    this.scene.add(wall);
+                    this.mazeWalls.push(wall);
+                });
+
+                // Add corner blocks at wall intersections
+                this.addCornerBlocks(patterns, wallHeight, wallThickness, wallMaterial);
+
+                // Add top caps to walls for more 3D depth look
+                this.addWallCaps(patterns, wallHeight, wallThickness, noiseTexture, bumpTexture);
+
+                // Add decorative stepped pyramids at intersections
+                this.addPyramidDecorations();
+            }
+
+            addWallCaps(patterns, wallHeight, wallThickness, noiseTexture, bumpTexture) {
+                const capMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x252525,
+                    map: noiseTexture,
+                    bumpMap: bumpTexture,
+                    bumpScale: 0.03,
+                    roughness: 0.7,
+                    metalness: 0.3
+                });
+
+                patterns.forEach(segment => {
+                    const length = Math.sqrt(
+                        Math.pow(segment.end.x - segment.start.x, 2) + 
+                        Math.pow(segment.end.z - segment.start.z, 2)
+                    );
+                    
+                    // Extended cap to cover corners
+                    const extendedLength = length + wallThickness;
+                    
+                    // Create slightly wider cap on top for thick walls
+                    const capGeometry = new THREE.BoxGeometry(extendedLength, 0.15, wallThickness + 0.15);
+                    const cap = new THREE.Mesh(capGeometry, capMaterial);
+                    
+                    cap.position.x = (segment.start.x + segment.end.x) / 2;
+                    cap.position.y = wallHeight + 0.07;
+                    cap.position.z = (segment.start.z + segment.end.z) / 2;
+                    
+                    const angle = Math.atan2(
+                        segment.end.z - segment.start.z,
+                        segment.end.x - segment.start.x
+                    );
+                    cap.rotation.y = -angle;
+                    
+                    cap.castShadow = true;
+                    cap.receiveShadow = true;
+                    
+                    this.scene.add(cap);
+                });
+            }
+
+            addCornerBlocks(patterns, wallHeight, wallThickness, wallMaterial) {
+                // Find all corner points where walls meet
+                const cornerPoints = new Map();
+                
+                patterns.forEach(segment => {
+                    // Add start and end points
+                    const startKey = `${Math.round(segment.start.x * 10)},${Math.round(segment.start.z * 10)}`;
+                    const endKey = `${Math.round(segment.end.x * 10)},${Math.round(segment.end.z * 10)}`;
+                    
+                    if (!cornerPoints.has(startKey)) {
+                        cornerPoints.set(startKey, { x: segment.start.x, z: segment.start.z, count: 0 });
+                    }
+                    cornerPoints.get(startKey).count++;
+                    
+                    if (!cornerPoints.has(endKey)) {
+                        cornerPoints.set(endKey, { x: segment.end.x, z: segment.end.z, count: 0 });
+                    }
+                    cornerPoints.get(endKey).count++;
+                });
+                
+                // Add corner blocks where walls meet
+                cornerPoints.forEach((point, key) => {
+                    const cornerGeometry = new THREE.BoxGeometry(wallThickness * 1.2, wallHeight, wallThickness * 1.2);
+                    const corner = new THREE.Mesh(cornerGeometry, wallMaterial);
+                    
+                    corner.position.x = point.x;
+                    corner.position.y = wallHeight / 2;
+                    corner.position.z = point.z;
+                    
+                    corner.castShadow = true;
+                    corner.receiveShadow = true;
+                    
+                    this.scene.add(corner);
+                });
+            }
+
+            generateAztecPattern() {
+                const segments = [];
+                const scale = 1.8;
+                
+                // Generate a complex organic labyrinth using recursive division + irregular paths
+                const gridSize = 28;
+                const cellSize = 2.2;
+                const offset = -(gridSize * cellSize) / 2;
+                
+                // Create maze grid using modified recursive backtracking
+                const maze = this.generateComplexMaze(gridSize, gridSize);
+                
+                // Convert maze to wall segments - perfectly straight lines
+                for (let y = 0; y < gridSize; y++) {
+                    for (let x = 0; x < gridSize; x++) {
+                        const cell = maze[y][x];
+                        const cx = x * cellSize + offset;
+                        const cz = y * cellSize + offset;
+                        
+                        // North wall
+                        if (cell.walls.north && y === 0) {
+                            segments.push({
+                                start: { x: cx, z: cz },
+                                end: { x: cx + cellSize, z: cz }
+                            });
+                        }
+                        
+                        // South wall
+                        if (cell.walls.south) {
+                            segments.push({
+                                start: { x: cx, z: cz + cellSize },
+                                end: { x: cx + cellSize, z: cz + cellSize }
+                            });
+                        }
+                        
+                        // West wall
+                        if (cell.walls.west && x === 0) {
+                            segments.push({
+                                start: { x: cx, z: cz },
+                                end: { x: cx, z: cz + cellSize }
+                            });
+                        }
+                        
+                        // East wall
+                        if (cell.walls.east) {
+                            segments.push({
+                                start: { x: cx + cellSize, z: cz },
+                                end: { x: cx + cellSize, z: cz + cellSize }
+                            });
+                        }
+                    }
+                }
+                
+                // Add outer boundary
+                const boundarySize = gridSize * cellSize / 2 + 2;
+                segments.push(
+                    { start: { x: -boundarySize, z: -boundarySize }, end: { x: boundarySize, z: -boundarySize } },
+                    { start: { x: boundarySize, z: -boundarySize }, end: { x: boundarySize, z: boundarySize } },
+                    { start: { x: boundarySize, z: boundarySize }, end: { x: -boundarySize, z: boundarySize } },
+                    { start: { x: -boundarySize, z: boundarySize }, end: { x: -boundarySize, z: -boundarySize } }
+                );
+                
+                // Add extra irregular internal walls for complexity
+                this.addIrregularWalls(segments, gridSize, cellSize, offset);
+                
+                return segments.map(seg => ({
+                    start: { x: seg.start.x * scale, z: seg.start.z * scale },
+                    end: { x: seg.end.x * scale, z: seg.end.z * scale }
+                }));
+            }
+
+            generateComplexMaze(width, height) {
+                // Initialize grid
+                const grid = [];
+                for (let y = 0; y < height; y++) {
+                    grid[y] = [];
+                    for (let x = 0; x < width; x++) {
+                        grid[y][x] = {
+                            visited: false,
+                            walls: { north: true, south: true, east: true, west: true }
+                        };
+                    }
+                }
+                
+                // Recursive backtracking maze generation
+                const stack = [];
+                const startX = Math.floor(width / 2);
+                const startY = Math.floor(height / 2);
+                let current = { x: startX, y: startY };
+                grid[current.y][current.x].visited = true;
+                
+                const getUnvisitedNeighbors = (x, y) => {
+                    const neighbors = [];
+                    if (y > 0 && !grid[y - 1][x].visited) neighbors.push({ x, y: y - 1, dir: 'north' });
+                    if (y < height - 1 && !grid[y + 1][x].visited) neighbors.push({ x, y: y + 1, dir: 'south' });
+                    if (x > 0 && !grid[y][x - 1].visited) neighbors.push({ x: x - 1, y, dir: 'west' });
+                    if (x < width - 1 && !grid[y][x + 1].visited) neighbors.push({ x: x + 1, y, dir: 'east' });
+                    return neighbors;
+                };
+                
+                const removeWall = (x, y, dir) => {
+                    const opposite = { north: 'south', south: 'north', east: 'west', west: 'east' };
+                    grid[y][x].walls[dir] = false;
+                    const nx = dir === 'east' ? x + 1 : dir === 'west' ? x - 1 : x;
+                    const ny = dir === 'south' ? y + 1 : dir === 'north' ? y - 1 : y;
+                    if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                        grid[ny][nx].walls[opposite[dir]] = false;
+                    }
+                };
+                
+                while (true) {
+                    const neighbors = getUnvisitedNeighbors(current.x, current.y);
+                    
+                    if (neighbors.length > 0) {
+                        // Choose random neighbor with bias for longer corridors
+                        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                        stack.push(current);
+                        removeWall(current.x, current.y, next.dir);
+                        current = { x: next.x, y: next.y };
+                        grid[current.y][current.x].visited = true;
+                    } else if (stack.length > 0) {
+                        current = stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+                
+                // Add some loops for more complexity (remove random walls)
+                for (let i = 0; i < Math.floor(width * height * 0.08); i++) {
+                    const rx = Math.floor(Math.random() * (width - 2)) + 1;
+                    const ry = Math.floor(Math.random() * (height - 2)) + 1;
+                    const dirs = ['north', 'south', 'east', 'west'];
+                    const dir = dirs[Math.floor(Math.random() * dirs.length)];
+                    removeWall(rx, ry, dir);
+                }
+                
+                return grid;
+            }
+
+            addIrregularWalls(segments, gridSize, cellSize, offset) {
+                // Add dead-end extensions - straight lines only
+                for (let i = 0; i < 40; i++) {
+                    const x = (Math.random() - 0.5) * gridSize * cellSize * 0.9;
+                    const z = (Math.random() - 0.5) * gridSize * cellSize * 0.9;
+                    const length = Math.random() * cellSize * 1.5 + cellSize * 0.5;
+                    const horizontal = Math.random() > 0.5;
+                    
+                    if (horizontal) {
+                        const dir = Math.random() > 0.5 ? 1 : -1;
+                        segments.push({
+                            start: { x: x, z: z },
+                            end: { x: x + length * dir, z: z }
+                        });
+                    } else {
+                        const dir = Math.random() > 0.5 ? 1 : -1;
+                        segments.push({
+                            start: { x: x, z: z },
+                            end: { x: x, z: z + length * dir }
+                        });
+                    }
+                }
+                
+                // Add L-shaped corners - perpendicular only
+                for (let i = 0; i < 25; i++) {
+                    const x = (Math.random() - 0.5) * gridSize * cellSize * 0.85;
+                    const z = (Math.random() - 0.5) * gridSize * cellSize * 0.85;
+                    const len1 = Math.random() * cellSize + cellSize * 0.5;
+                    const len2 = Math.random() * cellSize + cellSize * 0.5;
+                    const rot = Math.floor(Math.random() * 4);
+                    
+                    // Four possible L orientations - all straight
+                    if (rot === 0) {
+                        segments.push(
+                            { start: { x, z }, end: { x: x + len1, z } },
+                            { start: { x: x + len1, z }, end: { x: x + len1, z: z + len2 } }
+                        );
+                    } else if (rot === 1) {
+                        segments.push(
+                            { start: { x, z }, end: { x, z: z + len1 } },
+                            { start: { x, z: z + len1 }, end: { x: x + len2, z: z + len1 } }
+                        );
+                    } else if (rot === 2) {
+                        segments.push(
+                            { start: { x, z }, end: { x: x - len1, z } },
+                            { start: { x: x - len1, z }, end: { x: x - len1, z: z - len2 } }
+                        );
+                    } else {
+                        segments.push(
+                            { start: { x, z }, end: { x, z: z - len1 } },
+                            { start: { x, z: z - len1 }, end: { x: x - len2, z: z - len1 } }
+                        );
+                    }
+                }
+                
+                // Add T-junctions - straight lines only
+                for (let i = 0; i < 15; i++) {
+                    const x = (Math.random() - 0.5) * gridSize * cellSize * 0.8;
+                    const z = (Math.random() - 0.5) * gridSize * cellSize * 0.8;
+                    const len = Math.random() * cellSize + cellSize * 0.6;
+                    const horizontal = Math.random() > 0.5;
+                    
+                    if (horizontal) {
+                        segments.push(
+                            { start: { x: x - len, z }, end: { x: x + len, z } },
+                            { start: { x, z }, end: { x, z: z + len * (Math.random() > 0.5 ? 1 : -1) } }
+                        );
+                    } else {
+                        segments.push(
+                            { start: { x, z: z - len }, end: { x, z: z + len } },
+                            { start: { x, z }, end: { x: x + len * (Math.random() > 0.5 ? 1 : -1), z } }
+                        );
+                    }
+                }
+            }
+
+            addPyramidDecorations() {
+                // Create noise texture for center structure
+                const noiseCanvas = document.createElement('canvas');
+                noiseCanvas.width = 128;
+                noiseCanvas.height = 128;
+                const ctx = noiseCanvas.getContext('2d');
+                const imageData = ctx.createImageData(128, 128);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const noise = Math.random() * 50 + 30;
+                    imageData.data[i] = noise;
+                    imageData.data[i + 1] = noise;
+                    imageData.data[i + 2] = noise;
+                    imageData.data[i + 3] = 255;
+                }
+                ctx.putImageData(imageData, 0, 0);
+                const noiseTexture = new THREE.CanvasTexture(noiseCanvas);
+                noiseTexture.wrapS = THREE.RepeatWrapping;
+                noiseTexture.wrapT = THREE.RepeatWrapping;
+
+                const pyramidMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x2a2a2a,
+                    map: noiseTexture,
+                    roughness: 0.7,
+                    metalness: 0.3
+                });
+
+                // Center structure - stepped pyramid
+                const centerBase = new THREE.Mesh(
+                    new THREE.BoxGeometry(8, 0.8, 8),
+                    pyramidMaterial
+                );
+                centerBase.position.set(0, 0.4, 0);
+                centerBase.castShadow = true;
+                centerBase.receiveShadow = true;
+                this.scene.add(centerBase);
+
+                const centerMid = new THREE.Mesh(
+                    new THREE.BoxGeometry(5, 0.8, 5),
+                    pyramidMaterial
+                );
+                centerMid.position.set(0, 1.2, 0);
+                centerMid.castShadow = true;
+                centerMid.receiveShadow = true;
+                this.scene.add(centerMid);
+
+                const centerTop = new THREE.Mesh(
+                    new THREE.ConeGeometry(1.5, 2.5, 4),
+                    pyramidMaterial
+                );
+                centerTop.position.set(0, 2.85, 0);
+                centerTop.rotation.y = Math.PI / 4;
+                centerTop.castShadow = true;
+                centerTop.receiveShadow = true;
+                this.scene.add(centerTop);
+            }
+
+            createMarbleBalls() {
+                const ballRadius = 0.6;
+                
+                // Create marble texture
+                const marbleCanvas = document.createElement('canvas');
+                marbleCanvas.width = 128;
+                marbleCanvas.height = 128;
+                const ctx = marbleCanvas.getContext('2d');
+                
+                // Marble gradient base
+                const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                gradient.addColorStop(0, '#f0f0f0');
+                gradient.addColorStop(0.5, '#d0d0d0');
+                gradient.addColorStop(1, '#909090');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 128, 128);
+                
+                // Add marble veins
+                ctx.strokeStyle = 'rgba(80, 80, 80, 0.4)';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 8; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(Math.random() * 128, Math.random() * 128);
+                    ctx.quadraticCurveTo(
+                        Math.random() * 128, Math.random() * 128,
+                        Math.random() * 128, Math.random() * 128
+                    );
+                    ctx.stroke();
+                }
+                
+                const marbleTexture = new THREE.CanvasTexture(marbleCanvas);
+                
+                const ballMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xeeeeee,
+                    map: marbleTexture,
+                    roughness: 0.15,
+                    metalness: 0.9,
+                    envMapIntensity: 1.0
+                });
+                
+                const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
+                const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+                
+                // Start at center - guaranteed to be on screen for all devices
+                ball.position.x = 0;
+                ball.position.y = ballRadius;
+                ball.position.z = 0;
+                
+                ball.castShadow = true;
+                ball.receiveShadow = true;
+                
+                // Direction: 0=right(+x), 1=down(+z), 2=left(-x), 3=up(-z)
+                const startDir = Math.floor(Math.random() * 4);
+                const directions = [
+                    { x: 1, z: 0 },   // right
+                    { x: 0, z: 1 },   // down
+                    { x: -1, z: 0 },  // left
+                    { x: 0, z: -1 }   // up
+                ];
+                
+                const ballData = {
+                    mesh: ball,
+                    direction: startDir,
+                    directions: directions,
+                    speed: 0.05, // Slower speed
+                    radius: ballRadius
+                };
+                
+                this.marbleBalls.push(ballData);
+                this.scene.add(ball);
+                
+                // Force initial position to be valid
+                ball.visible = true;
+            }
+
+            getVisibleArea() {
+                // Calculate visible world area based on camera position and FOV
+                const vFov = this.camera.fov * Math.PI / 180;
+                const camHeight = this.camera.position.y;
+                const height = 2 * Math.tan(vFov / 2) * camHeight;
+                const width = height * this.camera.aspect;
+                
+                return {
+                    width: width,
+                    height: height,
+                    minX: -width / 2,
+                    maxX: width / 2,
+                    minZ: -height / 2,
+                    maxZ: height / 2
+                };
+            }
+
+            updateMarbleBalls() {
+                const wallThickness = 1.2;
+                const collisionDist = wallThickness / 2 + 0.8;
+                const sideDist = 2.5;
+                
+                // Get current visible area (recalculate in case of resize)
+                const visibleArea = this.getVisibleArea();
+                const boundaryPadding = 3;
+                const boundaryX = Math.min(visibleArea.width / 2 - boundaryPadding, 55);
+                const boundaryZ = Math.min(visibleArea.height / 2 - boundaryPadding, 55);
+                
+                this.marbleBalls.forEach(ball => {
+                    const dir = ball.directions[ball.direction];
+                    const posX = ball.mesh.position.x;
+                    const posZ = ball.mesh.position.z;
+                    
+                    // Check if there's a wall directly ahead
+                    const aheadX = posX + dir.x * collisionDist;
+                    const aheadZ = posZ + dir.z * collisionDist;
+                    const wallAhead = this.checkPointInWall(aheadX, aheadZ, wallThickness / 2 + 0.3);
+                    
+                    if (wallAhead) {
+                        // Hit a wall! Now decide: turn 90° or bounce back
+                        
+                        // Get left and right directions
+                        const leftDirIndex = (ball.direction + 3) % 4;
+                        const rightDirIndex = (ball.direction + 1) % 4;
+                        const leftDir = ball.directions[leftDirIndex];
+                        const rightDir = ball.directions[rightDirIndex];
+                        
+                        // Check if left path is open (no wall)
+                        const leftX = posX + leftDir.x * sideDist;
+                        const leftZ = posZ + leftDir.z * sideDist;
+                        const leftOpen = !this.checkPointInWall(leftX, leftZ, wallThickness / 2 + 0.3);
+                        
+                        // Check if right path is open (no wall)
+                        const rightX = posX + rightDir.x * sideDist;
+                        const rightZ = posZ + rightDir.z * sideDist;
+                        const rightOpen = !this.checkPointInWall(rightX, rightZ, wallThickness / 2 + 0.3);
+                        
+                        if (leftOpen && rightOpen) {
+                            // Both sides open - pick randomly
+                            ball.direction = Math.random() > 0.5 ? leftDirIndex : rightDirIndex;
+                        } else if (leftOpen) {
+                            // Only left is open - turn left 90°
+                            ball.direction = leftDirIndex;
+                        } else if (rightOpen) {
+                            // Only right is open - turn right 90°
+                            ball.direction = rightDirIndex;
+                        } else {
+                            // Dead end - bounce back 180°
+                            ball.direction = (ball.direction + 2) % 4;
+                        }
+                    } else {
+                        // No wall ahead - keep rolling
+                        ball.mesh.position.x += dir.x * ball.speed;
+                        ball.mesh.position.z += dir.z * ball.speed;
+                        
+                        // Roll rotation
+                        ball.mesh.rotation.z -= dir.x * ball.speed * 2;
+                        ball.mesh.rotation.x += dir.z * ball.speed * 2;
+                    }
+                    
+                    // Boundary check - keep ball within visible screen area
+                    if (Math.abs(ball.mesh.position.x) > boundaryX) {
+                        ball.mesh.position.x = Math.sign(ball.mesh.position.x) * (boundaryX - 1);
+                        ball.direction = (ball.direction + 2) % 4;
+                    }
+                    if (Math.abs(ball.mesh.position.z) > boundaryZ) {
+                        ball.mesh.position.z = Math.sign(ball.mesh.position.z) * (boundaryZ - 1);
+                        ball.direction = (ball.direction + 2) % 4;
+                    }
+                    
+                    // Update ball visibility based on distance to light
+                    const distToLight = Math.sqrt(
+                        Math.pow(ball.mesh.position.x - this.cursorLight.position.x, 2) +
+                        Math.pow(ball.mesh.position.z - this.cursorLight.position.z, 2)
+                    );
+                    
+                    const visibility = Math.max(0, 1 - distToLight / 28);
+                    ball.mesh.material.opacity = visibility;
+                    ball.mesh.material.transparent = true;
+                    
+                    const glowIntensity = visibility * 0.4;
+                    ball.mesh.material.emissive = new THREE.Color(glowIntensity, glowIntensity * 0.9, glowIntensity * 0.7);
+                });
+            }
+
+            checkPointInWall(x, z, threshold) {
+                for (const wall of this.wallSegments) {
+                    const isHorizontal = Math.abs(wall.z1 - wall.z2) < 0.5;
+                    const isVertical = Math.abs(wall.x1 - wall.x2) < 0.5;
+                    
+                    if (isHorizontal) {
+                        const minX = Math.min(wall.x1, wall.x2) - threshold;
+                        const maxX = Math.max(wall.x1, wall.x2) + threshold;
+                        const wallZ = (wall.z1 + wall.z2) / 2;
+                        
+                        if (x >= minX && x <= maxX && Math.abs(z - wallZ) < threshold) {
+                            return true;
+                        }
+                    } else if (isVertical) {
+                        const minZ = Math.min(wall.z1, wall.z2) - threshold;
+                        const maxZ = Math.max(wall.z1, wall.z2) + threshold;
+                        const wallX = (wall.x1 + wall.x2) / 2;
+                        
+                        if (z >= minZ && z <= maxZ && Math.abs(x - wallX) < threshold) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            createParticles() {
+                const particleCount = 1200;
+                const geometry = new THREE.BufferGeometry();
+                const positions = new Float32Array(particleCount * 3);
+                const originalPositions = new Float32Array(particleCount * 3);
+                const sizes = new Float32Array(particleCount);
+
+                for (let i = 0; i < particleCount; i++) {
+                    const i3 = i * 3;
+                    
+                    // Distribute particles across expanded maze area
+                    positions[i3] = (Math.random() - 0.5) * 120;
+                    positions[i3 + 1] = Math.random() * 0.5 + 0.1;
+                    positions[i3 + 2] = (Math.random() - 0.5) * 120;
+                    
+                    originalPositions[i3] = positions[i3];
+                    originalPositions[i3 + 1] = positions[i3 + 1];
+                    originalPositions[i3 + 2] = positions[i3 + 2];
+                    
+                    sizes[i] = Math.random() * 0.15 + 0.05;
+                }
+
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+                // Custom shader material for particles
+                const particleMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTime: { value: 0 },
+                        uMouse: { value: new THREE.Vector2(0, 0) },
+                        uLightPosition: { value: new THREE.Vector3(0, 5, 0) },
+                        uLightIntensity: { value: 1.5 }
+                    },
+                    vertexShader: `
+                        attribute float size;
+                        uniform float uTime;
+                        uniform vec2 uMouse;
+                        uniform vec3 uLightPosition;
+                        uniform float uLightIntensity;
+                        
+                        varying float vBrightness;
+                        varying float vDistance;
+                        
+                        void main() {
+                            vec3 pos = position;
+                            
+                            // Distance from light source
+                            float distToLight = distance(pos.xz, uLightPosition.xz);
+                            vDistance = distToLight;
+                            
+                            // Brightness based on distance to light (wider range for further view)
+                            vBrightness = smoothstep(28.0, 0.0, distToLight) * uLightIntensity;
+                            
+                            // Subtle movement away from cursor
+                            vec2 dirFromMouse = pos.xz - uMouse;
+                            float distFromMouse = length(dirFromMouse);
+                            if (distFromMouse < 5.0 && distFromMouse > 0.1) {
+                                vec2 push = normalize(dirFromMouse) * (1.0 - distFromMouse / 5.0) * 0.3;
+                                pos.xz += push;
+                            }
+                            
+                            // Gentle floating animation
+                            pos.y += sin(uTime * 0.5 + position.x * 0.5) * 0.05;
+                            
+                            vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                            gl_Position = projectionMatrix * mvPosition;
+                            gl_PointSize = size * (200.0 / -mvPosition.z) * (0.5 + vBrightness * 0.5);
+                        }
+                    `,
+                    fragmentShader: `
+                        varying float vBrightness;
+                        varying float vDistance;
+                        
+                        void main() {
+                            // Circular particle shape
+                            vec2 center = gl_PointCoord - vec2(0.5);
+                            float dist = length(center);
+                            if (dist > 0.5) discard;
+                            
+                            // Golden glow color (brighter)
+                            vec3 goldColor = vec3(0.95, 0.80, 0.30);
+                            vec3 dimColor = vec3(0.12, 0.12, 0.12);
+                            
+                            // Mix between dim and gold based on light
+                            vec3 color = mix(dimColor, goldColor, vBrightness);
+                            
+                            // Soft edges
+                            float alpha = smoothstep(0.5, 0.2, dist) * (0.15 + vBrightness * 0.85);
+                            
+                            gl_FragColor = vec4(color, alpha);
+                        }
+                    `,
+                    transparent: true,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+
+                this.particleSystem = new THREE.Points(geometry, particleMaterial);
+                this.scene.add(this.particleSystem);
+                this.particleMaterial = particleMaterial;
+            }
+
+            createLighting() {
+                // Very dim ambient light - keeps scene mostly dark
+                const ambientLight = new THREE.AmbientLight(0x111111, 0.4);
+                this.scene.add(ambientLight);
+
+                // Cursor-following point light - main illumination (brighter, longer range)
+                this.cursorLight = new THREE.PointLight(0xd4af37, 5, 45, 1.5);
+                this.cursorLight.position.set(0, 5, 0);
+                this.cursorLight.castShadow = true;
+                this.cursorLight.shadow.mapSize.width = 512;
+                this.cursorLight.shadow.mapSize.height = 512;
+                this.scene.add(this.cursorLight);
+
+                // Secondary softer light for atmosphere (brighter, longer range)
+                this.secondaryLight = new THREE.PointLight(0x8b7355, 1.5, 55, 1.5);
+                this.secondaryLight.position.set(0, 8, 0);
+                this.scene.add(this.secondaryLight);
+
+                // Subtle rim lights at edges (wider spread for expanded maze)
+                const rimLight1 = new THREE.PointLight(0x1a1a2e, 0.5, 90);
+                rimLight1.position.set(-50, 3, -50);
+                this.scene.add(rimLight1);
+
+                const rimLight2 = new THREE.PointLight(0x1a1a2e, 0.5, 90);
+                rimLight2.position.set(50, 3, 50);
+                this.scene.add(rimLight2);
+
+                const rimLight3 = new THREE.PointLight(0x1a1a2e, 0.4, 90);
+                rimLight3.position.set(-50, 3, 50);
+                this.scene.add(rimLight3);
+
+                const rimLight4 = new THREE.PointLight(0x1a1a2e, 0.4, 90);
+                rimLight4.position.set(50, 3, -50);
+                this.scene.add(rimLight4);
+            }
+
+            addEventListeners() {
+                // Mouse move
+                this.container.addEventListener('mousemove', (e) => {
+                    const rect = this.container.getBoundingClientRect();
+                    this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                    this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                    
+                    // Convert to world coordinates
+                    const vector = new THREE.Vector3(this.mouse.x, this.mouse.y, 0.5);
+                    vector.unproject(this.camera);
+                    const dir = vector.sub(this.camera.position).normalize();
+                    const distance = -this.camera.position.y / dir.y;
+                    const pos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+                    
+                    this.mouse.worldX = pos.x;
+                    this.mouse.worldY = pos.z;
+                });
+
+                // Touch support
+                this.container.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    const rect = this.container.getBoundingClientRect();
+                    this.mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+                    this.mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+                    
+                    const vector = new THREE.Vector3(this.mouse.x, this.mouse.y, 0.5);
+                    vector.unproject(this.camera);
+                    const dir = vector.sub(this.camera.position).normalize();
+                    const distance = -this.camera.position.y / dir.y;
+                    const pos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+                    
+                    this.mouse.worldX = pos.x;
+                    this.mouse.worldY = pos.z;
+                }, { passive: false });
+
+                // Resize handler
+                window.addEventListener('resize', () => this.onResize());
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => this.onResize(), 100);
+                });
+
+                // Handle visibility change to prevent issues when tab is hidden
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) {
+                        this.onResize();
+                    }
+                });
+            }
+
+            onResize() {
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                
+                const aspect = this.width / this.height;
+                
+                // Adjust FOV and height for portrait/mobile
+                this.camera.fov = aspect < 1 ? 75 : 60;
+                this.camera.position.y = aspect < 1 ? 40 : 55;
+                
+                this.camera.aspect = aspect;
+                this.camera.updateProjectionMatrix();
+                
+                this.renderer.setSize(this.width, this.height);
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                const time = performance.now() * 0.001;
+                
+                // Smooth light following
+                const targetX = this.mouse.worldX;
+                const targetZ = this.mouse.worldY;
+                
+                this.cursorLight.position.x += (targetX - this.cursorLight.position.x) * 0.1;
+                this.cursorLight.position.z += (targetZ - this.cursorLight.position.z) * 0.1;
+                
+                this.secondaryLight.position.x += (targetX - this.secondaryLight.position.x) * 0.05;
+                this.secondaryLight.position.z += (targetZ - this.secondaryLight.position.z) * 0.05;
+
+                // Update particle shader uniforms
+                if (this.particleMaterial) {
+                    this.particleMaterial.uniforms.uTime.value = time;
+                    this.particleMaterial.uniforms.uMouse.value.set(targetX, targetZ);
+                    this.particleMaterial.uniforms.uLightPosition.value.copy(this.cursorLight.position);
+                }
+
+                // Subtle wall emissive pulse near cursor (wider range)
+                this.mazeWalls.forEach(wall => {
+                    const dist = Math.sqrt(
+                        Math.pow(wall.position.x - this.cursorLight.position.x, 2) +
+                        Math.pow(wall.position.z - this.cursorLight.position.z, 2)
+                    );
+                    const intensity = Math.max(0, 1 - dist / 18) * 0.5;
+                    wall.material.emissiveIntensity = 0.1 + intensity;
+                });
+
+                // Update marble balls
+                this.updateMarbleBalls();
+
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('canvas-container');
+            new AztecGardenHeader(container);
+        });
+    </script>
+</body>
+</html>
