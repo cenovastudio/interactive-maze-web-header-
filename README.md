@@ -15,7 +15,7 @@ An interactive 3D labyrinth header with cursor-driven illumination, built with T
 
 ## 🚀 Live Demo
 
-[View Live Demo](https://yourusername.github.io/aztec-maze)
+[View Live Demo](https://cenovastudio.github.io/interactive-maze-web-header-/)
 
 ## 🛠️ Technologies
 
@@ -122,8 +122,9 @@ MIT License - feel free to use in your projects!
 
 **Cenova Stüdyo**
 
-- Website: [your-website.com](https://your-website.com)
-- GitHub: [@yourusername](https://github.com/yourusername)
+- Website: [cenovastudio.com](https://cenovastudio.com)
+- GitHub: [@cenovastudio](https://github.com/cenovastudio)
+- Instagram [@cenova.studio](https://www.instagram.com/cenova.studio/)
 
 ## 🙏 Acknowledgments
 
