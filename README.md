@@ -51,39 +51,6 @@ The marble ball follows simple rules:
 - Four rim lights at corners
 - Particles glow when near the cursor light
 
-## 💻 Local Development
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/aztec-maze.git
-cd aztec-maze
-```
-
-2. Open `index.html` in a browser, or use a local server:
-```bash
-# Using Python
-python -m http.server 8000
-
-# Using Node.js
-npx serve
-```
-
-3. Visit `http://localhost:8000`
-
-## 🌐 Deployment
-
-### GitHub Pages (Recommended)
-1. Go to your repository Settings
-2. Navigate to Pages section
-3. Select "Deploy from a branch"
-4. Choose `main` branch and `/ (root)` folder
-5. Save - your site will be live at `https://yourusername.github.io/aztec-maze`
-
-### Other Options
-- **Netlify**: Drag and drop the folder
-- **Vercel**: Connect your GitHub repo
-- **Any static hosting**: Just upload the files
-
 ## ⚙️ Customization
 
 Edit these values in `index.html`:
